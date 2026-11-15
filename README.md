@@ -27,8 +27,8 @@ proxmox-lxc-template/
   references/proxmox.md         the host-side commands
   scripts/build-lxc-template.sh starting point for a template build (mmdebstrap)
   scripts/check-template.py     looks inside a finished template for those mistakes
-  assets/                       first-boot script and units, an app unit, a release
-                                workflow, PostgreSQL source and small-container settings
+  assets/                       first-boot script and units, an app unit, release and
+                                CI workflows, PostgreSQL source and small-container settings
 ```
 
 `check-template.py` works on any template, whoever built it:

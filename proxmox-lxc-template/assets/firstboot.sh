@@ -10,7 +10,10 @@
 set -eu
 
 APP=myapp
-STATE=/var/lib/$APP/provisioned
+# Never inside DATA_DIR: a data directory mounted from the host outlives the
+# container, and a new container would find the file and skip its own setup
+# (pitfall 14).
+STATE=/etc/$APP/provisioned
 ENV_FILE=/etc/$APP/$APP.env
 DATA_DIR=/app/data
 ADMIN_USER=admin
@@ -54,6 +57,9 @@ SQL
 fi
 
 # --- First login ---------------------------------------------------------------
+# Best, when the application can do it: no password here at all. The first
+# visit to its web page asks for one, and the console just shows the address
+# (see /etc/issue below, and pitfall 15). Then delete this section.
 if [ -z "$FIRST_PASSWORD" ]; then
 	FIRST_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | cut -c1-14)
 	(umask 077 && printf '%s\n' "$FIRST_PASSWORD" >"/root/$APP-admin-password")
@@ -70,6 +76,16 @@ if ! runuser -u "$APP" -- sh -c "touch $DATA_DIR/.write-test && rm $DATA_DIR/.wr
 	log "WARNING: $DATA_DIR is not writable by the $APP user (UID $(id -u "$APP"))."
 	log "         On the Proxmox host: chown $((100000 + $(id -u "$APP"))):$((100000 + $(id -g "$APP"))) <the mounted directory>"
 fi
+
+# Above the console's login prompt, so nobody has to log in to find the web
+# page. agetty replaces \4 with the container's IPv4 address each time the
+# prompt is drawn.
+cat >/etc/issue <<ISSUE
+Debian GNU/Linux \\n \\l
+
+  $APP: open http://\\4:8080/ in a web browser
+
+ISSUE
 
 cat >/etc/motd <<MOTD
 

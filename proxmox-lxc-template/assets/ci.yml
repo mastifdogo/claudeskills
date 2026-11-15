@@ -1,0 +1,71 @@
+# Builds the Proxmox LXC template on every push and checks it, without
+# publishing anything. A release tag should only ever be put on a commit this
+# has passed for: the tag must not be the first time the template is built.
+# A starting point: replace "myapp" and the build step with the application's own.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test
+
+  template:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUITE: trixie
+      VERSION: v0.0.0-ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install image build tools
+        # The same step as in release.yml: mmdebstrap and the target suite's
+        # keyring from Debian's servers, checksummed.
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          get() { curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 "$1" -o "$2"; }
+          get "https://deb.debian.org/debian/dists/$SUITE/main/binary-all/Packages.xz" "$work/Packages.xz"
+          for pkg in debian-archive-keyring mmdebstrap; do
+            read -r file sum < <(xz -dc "$work/Packages.xz" | awk -v p="$pkg" '
+              $1 == "Package:" { hit = ($2 == p) }
+              hit && $1 == "Filename:" { f = $2 }
+              hit && $1 == "SHA256:" { s = $2 }
+              hit && f && s { print f, s; exit }') || true
+            [ -n "$file" ] || { echo "::error::$pkg not found on deb.debian.org"; exit 1; }
+            get "https://deb.debian.org/debian/$file" "$work/$pkg.deb"
+            echo "$sum  $work/$pkg.deb" | sha256sum -c -
+          done
+          sudo dpkg -i --force-depends "$work/debian-archive-keyring.deb" "$work/mmdebstrap.deb"
+          mmdebstrap --version
+
+      - name: Build the release tarball
+        run: make release VERSION="$VERSION" # → dist/myapp-$VERSION-linux-amd64.tar.gz
+
+      - name: Build the LXC template
+        run: |
+          sudo deploy/lxc-template/build-lxc-template.sh \
+            --suite "$SUITE" --version "$VERSION" \
+            --release "dist/myapp-$VERSION-linux-amd64.tar.gz"
+          sudo chown -R "$(id -u):$(id -g)" dist
+
+      - name: Check the template
+        run: |
+          pip install --quiet zstandard
+          python3 deploy/lxc-template/check-template.py dist/debian-*-myapp_"$VERSION"_amd64.tar.zst --require usr/local/bin/myapp

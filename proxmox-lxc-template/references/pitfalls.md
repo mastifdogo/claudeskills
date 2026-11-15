@@ -147,3 +147,106 @@ looked at the result.
 **Fix.** After every install step, check the file it should have produced
 and stop if it isn't there. Run `check-template.py` on the finished archive.
 State in the hand-off whether anyone has booted the template.
+
+Run the application for real inside the image before it is packed: in the
+customize hook, `chroot` in as the service user and make it do its job once
+(start and print its version, open its database library, produce one output
+file). That is the same binary, user and libraries the container will have,
+and it catches a missing shared library or a wrong path that no file check
+does. The build script's `SMOKE_TEST` is for this.
+
+## 13. The build says a file is missing from the image, but the installer put it there
+
+**Why.** The path goes through a symlink with an absolute target, such as
+`/opt/myapp/current -> /opt/myapp/releases/v1.2.3`. A check made from
+outside the image (`[ -e "$root/opt/myapp/current/bin/myapp" ]`) follows
+that link on the *build machine*, where the target doesn't exist. Inside a
+running container it would have been fine.
+
+**Fix.** Check from inside (`chroot "$root" test -e /opt/…`, which the build
+script's `need` does), and make links the installer creates relative
+(`ln -sfn "releases/$version" /opt/myapp/current`) so they mean the same
+thing from anywhere. `check-template.py --require` follows links inside the
+archive, and notes links that point at a build directory.
+
+## 14. A new container skips first-boot setup, or the app starts unconfigured
+
+**Why.** The "already set up" state file was inside the data directory, and
+the data directory is a mount from the host that an earlier container
+already used. The new container finds the file and never runs its own setup.
+
+**Existing container.** `pct exec <ctid> -- rm <state file>` and restart
+it; first boot then runs.
+
+**Build.** Keep the state file on the container's own disk
+(`/etc/<app>/provisioned`), never under the data directory. The same goes
+for anything else that belongs to one container rather than to the data.
+
+## 15. "I don't want to set it up on the command line"
+
+**Why.** A container's Console tab in Proxmox is a text terminal; nothing
+graphical can be shown there. Setup that needs the console (reading a
+generated password out of a file, editing an environment file) is the part
+people get stuck on.
+
+**Fix.** Put all setup in the application's own web page, and make the
+console's only job to say where that page is:
+
+- First visit, no password yet: the page asks the visitor to choose the
+  admin password (stored hashed). Then first boot has no password to make,
+  and nothing has to be read from a file. Refuse a second setup once a
+  password exists.
+- Keys, tokens and other settings are saved from that page into the
+  application's database, not typed into `/etc/<app>/<app>.env`.
+- `/etc/issue` shows the address above the login prompt:
+  `http://\4:8080/` (agetty replaces `\4` with the container's IPv4
+  address each time it draws the prompt).
+- One way back in from the host for a forgotten password, documented:
+  `pct exec <ctid> -- <app> reset-admin-password`, after which the page
+  asks for a new one. If that command runs as root, have it switch to the
+  service user first (`runuser -u <app> --`), or it leaves root-owned
+  files in the data directory that the service can't write.
+
+## 16. A release tag was pushed and the release failed; re-running it fails again
+
+**Why.** The template is first built for real by the release workflow, so
+the tag was the first time anyone found out it doesn't build. A tag points
+at one commit: re-running the workflow builds the same broken commit.
+
+**Fix.** Build the template on every push as well (`assets/ci.yml`: the
+release tarball, the template and `check-template.py`, nothing published),
+and tag only a commit whose CI is green. After a failed release, publish
+the fix under a new tag; don't move the old one unless the owner asks.
+
+## 17. The installer downloads something, and the build can't check it
+
+**Why.** A voice model, a runtime or a prebuilt binary fetched while the
+image is built. Two things go wrong: the chroot has no `/etc/resolv.conf`,
+so the download fails; or it succeeds with no checksum, and the image
+contains whatever the server sent that day.
+
+**Fix.** Set `INSTALL_NEEDS_NETWORK=1` (name resolution for that step only).
+Pin a SHA-256 for every download and stop on a mismatch. If the checksum
+can't be found beforehand, have the first CI build print it, then pin that
+value and remove the printing. A size check is not a checksum.
+
+## 18. The application should update itself, but it runs unprivileged
+
+**Why.** The service user can't (and shouldn't) replace root-owned code or
+restart its own unit.
+
+**Fix.** The application only *names* a version. It writes the release tag
+to a request file in its data directory; a `.path` unit
+(`PathExists=<that file>`) starts a root oneshot that:
+
+1. reads the tag, deletes the request file first (a failing update must
+   not be started over and over), and checks the tag against a strict
+   pattern;
+2. downloads that release itself from the repository named in a root-owned
+   file, never from anything the service wrote, and verifies it against
+   the release's `SHA256SUMS`;
+3. runs the release's own installer (the one path again) and restarts the
+   service.
+
+Keep the previous release directory so going back is a symlink change.
+Checking for a new version is separate and only on demand: see pitfall 9.

@@ -27,6 +27,13 @@ PG_VERSION=""
 UNITS=("$APP-firstboot.service" "$APP.service")
 # Files that must exist in the finished image; the build fails if one is missing.
 REQUIRE=(usr/bin/login "usr/local/bin/$APP" "usr/local/sbin/$APP-firstboot")
+# 1 if the application's installer downloads anything (a voice model, a
+# runtime): the image then gets name resolution while the installer runs.
+INSTALL_NEEDS_NETWORK=0
+# A command run inside the finished image, as the service user, that proves
+# the application really works there (see pitfall 12). Empty for none, e.g.
+#   SMOKE_TEST="/usr/local/bin/$APP --version"
+SMOKE_TEST=""
 # ------------------------------------------------------------------------------------
 
 SUITE=trixie # Debian 13
@@ -115,20 +122,23 @@ cat >"$work/customize.sh" <<CUSTOMIZE
 set -eu
 root=\$1
 in_root() { chroot "\$root" env DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 "\$@"; }
-need() { [ -e "\$root/\$1" ] || { echo "the image is missing /\$1" >&2; exit 1; }; }
+# Checked from inside the image: a symlink with an absolute target would
+# otherwise be followed on this machine and look missing (pitfall 13).
+need() { in_root test -e "/\$1" || { echo "the image is missing /\$1" >&2; exit 1; }; }
+net_on() { made_resolv=0; if [ ! -s "\$root/etc/resolv.conf" ]; then cp /etc/resolv.conf "\$root/etc/resolv.conf"; made_resolv=1; fi; }
+net_off() { if [ "\$made_resolv" = 1 ]; then rm -f "\$root/etc/resolv.conf"; fi; }
 
 mkdir -p "\$root/opt/$APP-release"
 cp -R "$stage/." "\$root/opt/$APP-release/"
 
 if [ -n "$PG_VERSION" ]; then
 	# The image needs name resolution for this step only.
-	made_resolv=0
-	if [ ! -s "\$root/etc/resolv.conf" ]; then cp /etc/resolv.conf "\$root/etc/resolv.conf"; made_resolv=1; fi
+	net_on
 	in_root sh /opt/$APP-release/deploy/pgdg.sh
 	in_root apt-get update -q >/dev/null
 	in_root apt-get install -y -q postgresql-$PG_VERSION >/dev/null
 	in_root apt-get clean
-	[ "\$made_resolv" = 1 ] && rm -f "\$root/etc/resolv.conf"
+	net_off
 	need usr/lib/postgresql/$PG_VERSION/bin/postgres
 	# Drop the cluster the package made: every container creates its own at first boot.
 	for c in "\$root"/etc/postgresql/*/main; do
@@ -138,7 +148,9 @@ if [ -n "$PG_VERSION" ]; then
 fi
 
 # The application, installed by its own installer (the one a manual install uses).
+if [ "$INSTALL_NEEDS_NETWORK" = 1 ]; then net_on; fi
 in_root env APP_UID=$APP_USER_UID sh /opt/$APP-release/deploy/install.sh >/dev/null
+if [ "$INSTALL_NEEDS_NETWORK" = 1 ]; then net_off; fi
 rm -rf "\$root/opt/$APP-release"
 
 # First-boot provisioning, and the application waits for it.
@@ -157,6 +169,14 @@ MOTD
 
 # What a person finds missing only on their own server: check it now.
 for f in ${REQUIRE[*]}; do need "\$f"; done
+for u in ${UNITS[*]}; do
+	in_root systemctl is-enabled "\$u" >/dev/null || { echo "\$u is not enabled in the image" >&2; exit 1; }
+done
+# And that it runs: the same binary, user and libraries the container will have.
+if [ -n "$SMOKE_TEST" ]; then
+	in_root runuser -u $APP -- sh -c 'cd /tmp && $SMOKE_TEST' || { echo "the smoke test failed inside the image" >&2; exit 1; }
+	rm -rf "\$root"/tmp/*
+fi
 
 # Nothing that must be unique per container, and no caches.
 rm -f "\$root"/etc/ssh/ssh_host_*

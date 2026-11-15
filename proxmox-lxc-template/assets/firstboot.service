@@ -1,7 +1,7 @@
 # /etc/systemd/system/myapp-firstboot.service: runs once per container.
 [Unit]
 Description=myapp first-boot setup (database, first login)
-ConditionPathExists=!/var/lib/myapp/provisioned
+ConditionPathExists=!/etc/myapp/provisioned
 Wants=network-online.target
 After=network-online.target local-fs.target postgresql.service
 Before=myapp.service

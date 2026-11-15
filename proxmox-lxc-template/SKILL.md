@@ -22,6 +22,7 @@ changing a build script**, and again when a container misbehaves.
 | `deploy/lxc-template/<app>-firstboot.sh` + `.service` | Runs once in each new container: database, secrets, first login (`assets/firstboot.*`) |
 | `deploy/<app>.service` | The application's systemd unit (`assets/app.service`) |
 | `.github/workflows/release.yml` | Tests, builds the template, publishes a GitHub Release (`assets/release.yml`) |
+| `.github/workflows/ci.yml` | Builds and checks the template on every push, publishing nothing (`assets/ci.yml`) |
 | docs | How to create a container from it, in the user's words (`references/proxmox.md` has the commands) |
 
 Copy the files from this skill into the application's repository and adapt
@@ -45,8 +46,11 @@ Ask, or read from the repository, before writing anything:
 - **How big**: memory and disk. Tune the database for it (a 512 MB container
   needs PostgreSQL's defaults turned down) and cap the service
   (`MemoryMax=`).
+- **How it is set up**: prefer the application's own web page for
+  everything, including choosing the admin password on the first visit, so
+  nobody needs the console (pitfall 15). The Proxmox console is text only.
 - **How it updates**: nothing, or an updater inside the container. If it
-  asks GitHub for releases, read pitfall 9.
+  asks GitHub for releases, read pitfall 9; if it installs them, pitfall 18.
 
 Use the current Debian stable unless told otherwise. Don't add Ubuntu or a
 second suite "for flexibility": each one is another thing to test.
@@ -80,6 +84,13 @@ Rules that came from real failures:
   right.
 - **Fail loudly**: `set -euo pipefail`, and every "did X install" is a check
   that stops the build.
+- **Check from inside the image.** A path through an absolute symlink
+  resolves on the build machine when tested from outside (pitfall 13); the
+  script's `need` uses `chroot`. Make the installer's own links relative.
+- **Run it once in the image** (`SMOKE_TEST`): the application doing its
+  real job as the service user, before the image is packed.
+- **Pin what the installer downloads** with a SHA-256, and set
+  `INSTALL_NEEDS_NETWORK=1` for that step (pitfall 17).
 
 Run `python3 scripts/check-template.py dist/<file>.tar.zst --require usr/bin/<your-binary>`
 after every build. It lists what is wrong with an image (no login program,
@@ -95,13 +106,19 @@ needing a Proxmox host.
 - generates SSH host keys if Proxmox didn't;
 - creates the database cluster, roles and a random password, written to the
   app's environment file (mode 0640, root and the app's group);
-- creates the first login. If it has to be a known password (so the release
+- creates the first login, unless the application asks for the password on
+  the first visit to its web page (better: then there is nothing to create
+  or to read from a file). If it has to be a known password (so the release
   notes can state it), the app must **force a change at the first login**;
   otherwise generate one and write it to a root-only file named in `/etc/motd`;
 - checks the data directory is writable by the service user and says so
   plainly if not (the usual bind-mount ownership mistake);
-- replaces `/etc/motd` with where things are: URL, login, logs, users;
+- replaces `/etc/motd` with where things are: URL, login, logs, users, and
+  writes `/etc/issue` so the console shows the web address above the login
+  prompt;
 - writes the state file last, so a failed run is retried at the next boot.
+  The state file is on the container's own disk, never in a data directory
+  that may be a mount (pitfall 14).
 
 It must be safe to run twice and must work without systemd (so it can be
 tested in a chroot: `pg_ctlcluster` instead of `systemctl start`).
@@ -120,6 +137,10 @@ that matter:
   and install matching client tools if the tests call them.
 - A tag with a suffix (`v1.2.3-rc.1`) is published as a pre-release. A
   re-run replaces the assets instead of failing.
+- **Build the template on every push too** (`assets/ci.yml`), and tag only
+  a green commit. Otherwise the tag is the first real build, and a failed
+  tag can't be fixed by re-running it (pitfall 16). Expect the first CI
+  build of a new template to fail on something: read the log, fix, push.
 - After triggering it, **check the run finished and the release has the
   assets**. A green build is not a booted container: say which of the two
   you checked.
