@@ -1,0 +1,35 @@
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=myapp
+Wants=network-online.target
+After=network-online.target postgresql.service
+# A bind-mounted data directory must be there first.
+RequiresMountsFor=/app/data
+
+[Service]
+Type=simple
+User=myapp
+Group=myapp
+# Secrets live here (mode 0640, root:myapp), written at first boot; never in the unit or the image.
+EnvironmentFile=/etc/myapp/myapp.env
+ExecStart=/usr/local/bin/myapp
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+# Limits for a small container: leave room for the database.
+MemoryMax=256M
+TasksMax=64
+
+# Sandboxing. In an unprivileged Proxmox container these need the "nesting"
+# feature; without it the service fails with status 226/NAMESPACE.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/app/data
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+
+[Install]
+WantedBy=multi-user.target

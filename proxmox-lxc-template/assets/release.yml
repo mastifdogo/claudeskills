@@ -1,0 +1,140 @@
+# Builds the application and its Proxmox LXC template and publishes them as a
+# GitHub Release. A starting point: replace "myapp" and the build and test
+# steps with the application's own.
+#
+# Run it by pushing a version tag (git tag v1.2.3 && git push origin v1.2.3),
+# or from the Actions tab: Release → Run workflow → enter a tag (it is created
+# on the selected branch's latest commit).
+#
+# Release assets:
+#   myapp-<tag>-linux-amd64.tar.gz         the application and its deploy scripts
+#   debian-13-myapp_<tag>_amd64.tar.zst    Proxmox CT template
+#   SHA256SUMS
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create, e.g. v1.2.3 (a tag with a suffix, such as v1.2.3-rc.1, is published as a pre-release)'
+        required: true
+        type: string
+
+permissions:
+  contents: write # create the release and upload assets
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ inputs.tag || github.ref_name }}
+      SUITE: trixie # the Debian release the template is built on
+    # Test against the same database version the template ships.
+    # services:
+    #   postgres:
+    #     image: postgres:18
+    #     env: { POSTGRES_PASSWORD: postgres }
+    #     ports: ['5432:5432']
+    #     options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag
+        run: |
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::release tags must look like v1.2.3 or v1.2.3-rc.1 (got '$VERSION')"
+            exit 1
+          fi
+
+      - name: Install image build tools
+        # mmdebstrap and Debian's archive keyring come straight from Debian's
+        # servers, checksummed. The runner's own (Ubuntu) keyring doesn't know
+        # a new Debian release's signing keys, so the keyring is taken from
+        # the release being built.
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          get() { curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 "$1" -o "$2"; }
+          get "https://deb.debian.org/debian/dists/$SUITE/main/binary-all/Packages.xz" "$work/Packages.xz"
+          for pkg in debian-archive-keyring mmdebstrap; do
+            read -r file sum < <(xz -dc "$work/Packages.xz" | awk -v p="$pkg" '
+              $1 == "Package:" { hit = ($2 == p) }
+              hit && $1 == "Filename:" { f = $2 }
+              hit && $1 == "SHA256:" { s = $2 }
+              hit && f && s { print f, s; exit }') || true
+            [ -n "$file" ] || { echo "::error::$pkg not found on deb.debian.org"; exit 1; }
+            get "https://deb.debian.org/debian/$file" "$work/$pkg.deb"
+            echo "$sum  $work/$pkg.deb" | sha256sum -c -
+          done
+          # Its dependencies (perl, apt) are already on the runner.
+          sudo dpkg -i --force-depends "$work/debian-archive-keyring.deb" "$work/mmdebstrap.deb"
+          command -v zstd >/dev/null
+          mmdebstrap --version
+
+      - name: Test
+        run: make test # the application's own tests; the release stops here if they fail
+
+      - name: Build the release tarball
+        run: make release VERSION="$VERSION" # → dist/myapp-$VERSION-linux-amd64.tar.gz
+
+      - name: Build the LXC template
+        run: |
+          sudo deploy/lxc-template/build-lxc-template.sh \
+            --suite "$SUITE" --version "$VERSION" \
+            --release "dist/myapp-$VERSION-linux-amd64.tar.gz"
+          sudo chown -R "$(id -u):$(id -g)" dist
+
+      - name: Check the template
+        # Catches an image nobody could log in to, or one with shared secrets,
+        # before it is published. Keep check-template.py in the repository.
+        run: |
+          pip install --quiet zstandard
+          python3 deploy/lxc-template/check-template.py dist/debian-*-myapp_"$VERSION"_amd64.tar.zst --require usr/local/bin/myapp
+
+      - name: Checksums
+        run: cd dist && sha256sum myapp-"$VERSION"-linux-amd64.tar.gz debian-*-myapp_"$VERSION"_amd64.tar.zst > SHA256SUMS && cat SHA256SUMS
+
+      - name: Release notes
+        run: |
+          base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$VERSION"
+          tpl=$(cd dist && ls debian-*-myapp_"$VERSION"_amd64.tar.zst)
+          sum=$(awk -v f="$tpl" '$2 == f { print $1 }' dist/SHA256SUMS)
+          cat > notes.md <<EOF
+          ## Proxmox LXC template
+
+          On the Proxmox host (as root):
+
+          \`\`\`sh
+          wget -P /var/lib/vz/template/cache $base/$tpl
+          echo "$sum  /var/lib/vz/template/cache/$tpl" | sha256sum -c
+          \`\`\`
+
+          Create an unprivileged container from it with **nesting** on, set a root
+          password in the wizard, start it, and open \`http://<container-ip>:8080/\`.
+          The first login is shown in the container's login message.
+          EOF
+          cat notes.md
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=(dist/myapp-"$VERSION"-linux-amd64.tar.gz dist/debian-*-myapp_"$VERSION"_amd64.tar.zst dist/SHA256SUMS)
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            # A re-run: replace the assets, keep the release.
+            gh release upload "$VERSION" "${assets[@]}" --clobber
+            gh release edit "$VERSION" --notes-file notes.md
+          else
+            prerelease=()
+            [[ "$VERSION" == *-* ]] && prerelease=(--prerelease)
+            gh release create "$VERSION" "${assets[@]}" \
+              --title "myapp $VERSION" --notes-file notes.md --target "$GITHUB_SHA" "${prerelease[@]}"
+          fi

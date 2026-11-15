@@ -1,0 +1,18 @@
+# /etc/systemd/system/myapp-firstboot.service: runs once per container.
+[Unit]
+Description=myapp first-boot setup (database, first login)
+ConditionPathExists=!/var/lib/myapp/provisioned
+Wants=network-online.target
+After=network-online.target local-fs.target postgresql.service
+Before=myapp.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/myapp-firstboot
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target
