@@ -193,6 +193,28 @@ feature the module uses (the context file says which version added what;
   and bring the module's own record in line, e.g. an invoice whose entry
   gets "paid" becomes paid, and open again if "paid" is taken off. Other
   tags are lowercase words; choose ones another module could use.
+- **Rate and quantity, shared** (Ledger ≥ 0.24.0; set
+  `"ledger": ">=0.24.0"`): anything counted (hours worked, kilometres,
+  litres, items) is tagged with the standard tag `rate`:
+  `await ctx.tags.setRate(entryId, { quantity: 7.5, unit: "hours",
+  rate_cents: 8000 }, req.user)`; `await ctx.tags.rate(entryId)` gives
+  `{ quantity, unit, rate_cents, amount_cents }` or null. `quantity` has up
+  to 4 decimals, `unit` is a word of up to 20 characters, `rate_cents` is
+  the price of one unit in the entry's currency; at least one of quantity
+  and rate. An entry has one rate; setting it again replaces it. A form
+  that starts from an existing entry (an invoice line from logged hours, a
+  bill line from a delivery) fills quantity, unit and price in from the
+  rate instead of asking again: in the page, put
+  `data-ledger-entry="<entry id>"` on the form and `data-ledger-fill=
+  "quantity" | "unit" | "rate" | "rate_cents" | "amount" | "amount_cents" |
+  "description" | "date"` on its fields (empty fields are filled, with
+  `input`/`change` events; `data-ledger-overwrite` replaces), or call
+  `await LedgerUI.rateOf(entryId)`.
+- **Batch tags** (Ledger ≥ 0.24.0): `ctx.tags.setMany(entryIds, tag, opts,
+  req.user)` and `ctx.tags.removeMany(entryIds, tag, opts)` tag or untag up
+  to 500 entries at once, all or none, returning `{ entries, changed }`;
+  each changed entry is still announced to `onChange` on its own. People do
+  the same from the Journal (tick entries, add or take off a tag).
 - **Root mode** (Ledger ≥ 0.21.0, wider in 0.21.1): an admin in root mode
   can delete any account, entry, line or user and move a line to any
   account; entries may be unbalanced until root mode is left, and anything
@@ -327,6 +349,16 @@ feature the module uses (the context file says which version added what;
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.
 - Data shown in the UI goes in with `textContent`, never `innerHTML`; support
   dark mode and narrow panes (~260 px).
+- Ledger draws the window around a module's page (a rounded panel with a
+  small gap around it and between panes), so the page fills its frame with
+  no outer border, margin or rounded box of its own.
+- Resizable columns and fields come free (Ledger ≥ 0.24.0): Ledger injects
+  `<script src="/ledger-ui.js">` into every HTML page it serves from `ui/`,
+  and users drag the right edge of a column heading, text field or
+  dropdown to resize it (double-click puts it back; remembered per page).
+  So build lists as real `<table>` with `<th>` and fields as `<input>` /
+  `<select>`, not div grids; put `data-no-resize` on anything that must
+  keep its size. Don't ship a column-resizer of your own.
 - Account dropdowns (categorizing transactions, picking accounts) end with
   "+ New account…": post `{ type: "ledger-new-account", id, defaults }` to
   `parent` and Ledger opens its New account dialog over the page, keeping
