@@ -39,7 +39,6 @@ python3 proxmox-lxc-template/scripts/check-template.py debian-13-myapp_v1.2.3_am
 
 ## Changing a skill
 
-Edit its folder, run `sh make-zip.sh`, commit both. The Ledger skills are
-also kept in [module-skill](https://github.com/mastifdogo/module-skill) and
-[ledger-import](https://github.com/mastifdogo/ledger-import); copy changes
-across so they don't drift.
+Edit its folder, run `sh make-zip.sh`, commit both. The QuickBooks skill is
+also kept in [ledger-import](https://github.com/mastifdogo/ledger-import);
+copy changes across so they don't drift.
