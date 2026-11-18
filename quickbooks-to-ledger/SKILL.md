@@ -8,6 +8,8 @@ description: Turn QuickBooks exports (a Journal report as CSV or Excel, an Accou
 The user uploads QuickBooks exports; you hand back `ledger.dump`. They
 restore it in Ledger under **Settings → Backups → Restore from a backup →
 upload a dump file**, in the organization whose books it should become.
+(Since Ledger 0.27.0 only an admin of the main books can restore from an
+uploaded dump file, in whichever organization they have switched to.)
 That restore replaces that organization's books, so say so when you hand the
 file over.
 
