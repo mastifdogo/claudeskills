@@ -192,6 +192,21 @@ feature the module uses (the context file says which version added what;
   assume an entry the module posted still has the amounts it posted: read
   them from the entry (`ctx.ledger.linkedEntries(ref)`), and show any
   difference from the module's own record instead of overwriting either.
+- **Linked entries** (Ledger ≥ 0.28.0; set `"ledger": ">=0.28.0"`): an
+  entry's page lists every entry linked to it, with date, amount and tags.
+  Entries linked to the same record (the same `ref`: an invoice's entry and
+  each of its payments on `invoice:31`) show with each other already, and so
+  do reversals. For entries that belong together without a record in common
+  (a payment and the bill another module posted, a transfer's two halves, a
+  refund and its sale), link the two:
+  `await ctx.ledger.relateEntries(entryId, otherId, { note }, req.user)`,
+  `ctx.ledger.unrelateEntries(entryId, otherId)`,
+  `ctx.ledger.relatedEntries(entryId)` → `[{ id, entry_date, description,
+  totals, tags, reversed, direct, why: [{ kind: "linked" | "chain" |
+  "record" | "reverses" | "reversed_by", note, module_id, label, href,
+  through }] }]` (also `related` on `getJournalEntry`). A link belongs to
+  the entries, so a person or another module can take it off; it says the
+  entries belong together, nothing more (paid and billed stay tags).
 - **Dates and accounts of a posted line can change too** (Ledger ≥ 0.20.2):
   a person can change an entry's date, and a finished reconciliation moves a
   bank account's unticked lines to Ledger's Unreconciled clearing account
