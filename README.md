@@ -7,6 +7,7 @@ Skills for [Claude](https://claude.ai). Each folder is one skill; the
 |---|---|
 | [`proxmox-lxc-template`](proxmox-lxc-template/) | Package an application as a ready-to-run Proxmox LXC container template: the build script, first-boot setup, publishing from GitHub Actions, and fixing a container that misbehaves. Written from getting a real one running, mistakes included. |
 | [`ledger-module`](ledger-module/) | Build, change, check and release modules for [Ledger](https://github.com/mastifdogo/Bookeeping), the self-hosted bookkeeping app. |
+| [`ledger-ui`](ledger-ui/) | Small changes to Ledger's own web pages (layout, wording, a toggle, a column) with as little reading as possible: a map of which file is which page, the house style, and two scripts that serve a scratch Ledger and screenshot pages. Such a change ships as a pages-only release, with no restart. |
 | [`quickbooks-to-ledger`](quickbooks-to-ledger/) | Turn QuickBooks exports into a Ledger database dump that can be restored in Ledger. |
 
 ## Install

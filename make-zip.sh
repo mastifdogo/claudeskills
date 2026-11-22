@@ -3,7 +3,7 @@
 # Claude's skill upload expects). Run after changing a skill's folder.
 set -eu
 cd "$(dirname "$0")"
-for skill in proxmox-lxc-template ledger-module quickbooks-to-ledger; do
+for skill in proxmox-lxc-template ledger-module ledger-ui quickbooks-to-ledger; do
 	rm -f "$skill-skill.zip"
 	if command -v zip >/dev/null 2>&1; then
 		zip -qrX "$skill-skill.zip" "$skill" -x '*/__pycache__/*' '*.pyc'
