@@ -380,13 +380,53 @@ feature the module uses (the context file says which version added what;
   (a `role` column says customer, vendor or both).
 - **Accounts**: `Account.kind` (Ledger 0.16.0) tags bank and card accounts
   (`chequing`, `savings`, `credit_card`): list tagged accounts first
-  wherever the user picks where money came from or went. Accounts can be
+  wherever the user picks where money came from or went. Since Ledger
+  0.30.0 `kind` is also `receivable` (accounts receivable) or `payable`
+  (accounts payable): when the module's own account setting is empty, use
+  the tagged account in the entry's currency. Accounts can be
   **sub-accounts** (Ledger 0.15.0): `parent_code` is the parent,
   `balance_cents` the account's own postings, `total_balance_cents` adds
   everything below it. Show account pickers and lists as a tree (indent
   sub-accounts under their parent) and use a parent's
   `total_balance_cents` for group totals; post to whichever account the
   user picks, parent or sub-account.
+- **Customers' and vendors' own accounts** (Ledger ≥ 0.31.0): every
+  customer has an account of their own under accounts receivable and every
+  vendor one under accounts payable, one per currency, and what is owed is
+  that account's balance. Track who owes what with these accounts, not with
+  tags or a balance column of the module's own:
+  - `await ctx.entities.account(entityId, "customer" | "vendor", currency)`
+    returns the account (made the first time; ask each time, never save
+    its code). It has `entity: { id, name, role }` and `kind: null`. Every
+    entity carries `accounts: [{ role, code, currency, owed_cents }]`.
+  - Post a customer's invoice and the payment that settles it to the
+    customer's account, a vendor's bill or receipt and its payment to the
+    vendor's. Posting to the tagged receivable or payable account **with
+    `entity_id`** does the same: Ledger routes that line to their own
+    account, so read account codes back from the entry it returns and
+    never compare a posted line's code with the setting. A line is "in
+    receivables" when its account has `kind === "receivable"` or
+    `entity?.role === "customer"` (`"payable"` / `"vendor"`).
+  - Don't tag such entries `customer` or `vendor`: the account says whose
+    they are. `ctx.tags.of` and `ctx.tags.entries({ entity_id })` still
+    return them as tagged (`id: 0`, `account_code` set). Setting the tag
+    on an entry with a line in receivables or payables moves that line to
+    their account; **removing it moves the line back**, so remove only
+    when the entry really isn't theirs any more. An entry with no such
+    line (a cash sale, a cost in a clearing account) keeps a real tag.
+  - `await ctx.entities.payment(entityId, { role, account_code, entry_date,
+    amount_cents, description?, reference? }, req.user)` posts a bill
+    payment (`role: "vendor"`: Dr their account / Cr the bank or card) or a
+    customer's payment (`"customer"`: Dr the bank / Cr their account).
+  - Leave accounts that have `entity` out of pickers for a sale's or a
+    cost's account and for bank accounts. On an older Ledger
+    `ctx.entities.account` is undefined: post to the receivable or payable
+    account and tag as before.
+  - When a module updates to this, nothing has to be converted by the
+    module: Ledger's own update moves every existing customer's or
+    vendor's receivable or payable line to their account and drops the
+    tags the accounts now express. The module must cope with its old
+    entries having moved (same entry ids, different account codes).
 - Organizations (Ledger ≥ 0.11.0): each organization's books, and the
   module's schema, are a separate database, and requests already run in the
   user's current one, so no organization columns. Background jobs that touch
