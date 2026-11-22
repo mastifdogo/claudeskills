@@ -418,14 +418,56 @@ feature the module uses (the context file says which version added what;
     amount_cents, description?, reference? }, req.user)` posts a bill
     payment (`role: "vendor"`: Dr their account / Cr the bank or card) or a
     customer's payment (`"customer"`: Dr the bank / Cr their account).
+  - **Linked payments** (Ledger ≥ 0.33.0): when a payment is matched to a
+    bill's or an invoice's entry, change neither entry. Link them:
+    `await ctx.ledger.linkPayment(billEntryId, paymentEntryId, {
+    amount_cents?, note? }, req.user)` (`amount_cents`: how much of the
+    payment goes to this entry when it pays several; left out, all of it).
+    It returns `{ currency, due_cents, paid_cents, left_cents, status,
+    payments }`; `ctx.ledger.payments(entryId)` reads it (null when none is
+    linked) and `ctx.ledger.unlinkPayment(billEntryId, paymentEntryId,
+    req.user)` takes one off. Ledger lists the payments on the entry's page
+    with what is paid and what is left, and keeps exactly one of the tags
+    `unpaid`, `partially_paid`, `paid` on the entry paid as payments are
+    linked, taken off or reversed. So: tag a new bill or invoice `unpaid`
+    when it is posted, link each payment as it is matched, never work out
+    `partially_paid` or `paid` from payments yourself, and follow the tags
+    with `ctx.tags.onChange` without setting them back (no loops). Set
+    `paid` yourself only where there is no payment entry to link (a person
+    marks it paid). Show the module's own status from the same source
+    (`ctx.ledger.payments`), so it can't disagree with Ledger.
   - When the bank or card side of an entry isn't known yet, don't make a
     clearing account for it: post that side to accounts payable or
     receivable (the tagged account itself, next to the line in the vendor's
-    or customer's own account) and, when its bank or card transaction is
-    linked, move the line there with `await ctx.ledger.moveLine(entryId,
-    lineNumber, accountCode, { reason }, req.user)` (Ledger ≥ 0.32.0; the
-    move is logged; 409 for a line ticked on a reconciliation or a reversed
-    entry). Ledger moves a whole line, so only link an equal amount.
+    or customer's own account) as a stand-in. When its bank or card
+    transaction turns up, **don't move the line**: post that transaction as
+    its own entry against the stand-in (which clears it; part amounts
+    work) and link the two entries with `ctx.ledger.relateEntries` and a
+    note. `ctx.ledger.moveLine(entryId, lineNumber, accountCode, { reason
+    }, req.user)` (Ledger ≥ 0.32.0) exists for correcting a line's account
+    (logged; 409 for a line ticked on a reconciliation or a reversed
+    entry), not for linking payments.
+  - **A vendor's (or customer's) statement of account is not a bill**
+    (Ledger ≥ 0.34.0): post nothing for it. Reconcile it against the
+    vendor's own account on Ledger's Reconcile page:
+    `const r = await ctx.reconcile.start({ account_code: (await
+    ctx.entities.account(vendorId, "vendor", currency)).code, document_id,
+    statement_date, statement_balance_cents, opening_balance_cents?,
+    period_start?, lines? }, req.user)`, then send the user to `r.href`
+    (`/reconcile/<id>`, a page of Ledger: navigate the top window).
+    `lines: [{ date, description, amount_cents }]` are the statement's lines
+    when the module read them, in the account's natural sign (invoices and
+    charges positive, payments and credit notes negative; the balance is
+    what is owed); with only `document_id` Ledger reads the document. Ledger
+    ticks the journal lines that match and shows which statement lines the
+    books don't have (`r.reading.unmatched`). An account has one
+    reconciliation in progress: `start` returns that one, so tell the user
+    instead of failing; `ctx.reconcile.open(accountCode)`, `list(accountCode)`
+    and `get(id)` read the state, so keep only the reconciliation's id.
+    Ledger refuses a document that belongs to another account: clear the
+    document's account first when converting a bank-type statement. Put the
+    option where statements already are in the module's UI, not in a tab of
+    its own.
   - In every account list, put accounts tagged chequing, savings or
     credit_card first, then the rest.
   - Leave accounts that have `entity` out of pickers for a sale's or a
