@@ -418,6 +418,16 @@ feature the module uses (the context file says which version added what;
     amount_cents, description?, reference? }, req.user)` posts a bill
     payment (`role: "vendor"`: Dr their account / Cr the bank or card) or a
     customer's payment (`"customer"`: Dr the bank / Cr their account).
+  - When the bank or card side of an entry isn't known yet, don't make a
+    clearing account for it: post that side to accounts payable or
+    receivable (the tagged account itself, next to the line in the vendor's
+    or customer's own account) and, when its bank or card transaction is
+    linked, move the line there with `await ctx.ledger.moveLine(entryId,
+    lineNumber, accountCode, { reason }, req.user)` (Ledger ≥ 0.32.0; the
+    move is logged; 409 for a line ticked on a reconciliation or a reversed
+    entry). Ledger moves a whole line, so only link an equal amount.
+  - In every account list, put accounts tagged chequing, savings or
+    credit_card first, then the rest.
   - Leave accounts that have `entity` out of pickers for a sale's or a
     cost's account and for bank accounts. On an older Ledger
     `ctx.entities.account` is undefined: post to the receivable or payable
