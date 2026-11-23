@@ -1,6 +1,6 @@
 ---
 name: ledger-ui
-description: Make small changes to the web pages of Ledger, the self-hosted bookkeeping app (mastifdogo/Bookeeping), with as little reading as possible: layout, spacing, wording, a button or toggle, a column, colours, a page's look on a phone. Use when asked to tweak, tidy, move, hide, rename or restyle something on a Ledger page, and the change needs nothing new from the server. Not for modules' pages (use ledger-module) or anything that needs a new API field.
+description: Make small changes to the web pages of Ledger, the self-hosted bookkeeping app (mastifdogo/Bookeeping), with as little reading as possible (layout, spacing, wording, a button or toggle, a column, colours, a page's look on a phone). Use when asked to tweak, tidy, move, hide, rename or restyle something on a Ledger page, and the change needs nothing new from the server. Not for modules' pages (use ledger-module) or anything that needs a new API field.
 ---
 
 # Ledger UI tweaks
