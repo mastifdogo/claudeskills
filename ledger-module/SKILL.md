@@ -497,6 +497,22 @@ feature the module uses (the context file says which version added what;
 - Ledger draws the window around a module's page (a rounded panel with a
   small gap around it and between panes), so the page fills its frame with
   no outer border, margin or rounded box of its own.
+- No back buttons (Ledger ≥ 0.35.4): Ledger's own Back button, in its
+  sidebar, steps through a module's views. Keep the view the page is on in
+  the address after `#` (`#/invoices`, `#/invoices/31`), show it on load
+  and on `hashchange`, and open a view with `<a href="#/…">` or
+  `location.hash = "#/…"`. Ledger carries that part in its own address
+  (`/apps/<id>#/invoices/31`), so Back goes through the views as through
+  Ledger's pages, and a reload, a link or a restored window opens the same
+  view. So never add a "Back" or "← All invoices" button or link, and
+  remove them from a module that has them (set `"ledger": ">=0.35.4"`).
+  Two rules: with nothing after `#`, show the first view (or what the
+  link's query asks for, e.g. `?invoice=31`) without changing the address;
+  and never change the address in answer to a `hashchange` (no redirects),
+  or Back gets stuck on that step. A page that keeps its views in
+  variables can stay that way: set `location.hash` when it opens a view
+  itself, and on a `hashchange` it didn't cause, show what the address
+  names. The checker warns about a back button.
 - Resizable columns and fields come free (Ledger ≥ 0.24.0): Ledger injects
   `<script src="/ledger-ui.js">` into every HTML page it serves from `ui/`,
   and users drag the right edge of a column heading, text field or
