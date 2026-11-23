@@ -512,7 +512,7 @@ feature the module uses (the context file says which version added what;
   or Back gets stuck on that step. A page that keeps its views in
   variables can stay that way: set `location.hash` when it opens a view
   itself, and on a `hashchange` it didn't cause, show what the address
-  names. The checker warns about a back button.
+  names. The checker warns about a back button. And the title of the module's window (its name) is a link to its first view when the page is on another one (Ledger 0.35.5), so no "Home" link either.
 - Resizable columns and fields come free (Ledger ≥ 0.24.0): Ledger injects
   `<script src="/ledger-ui.js">` into every HTML page it serves from `ui/`,
   and users drag the right edge of a column heading, text field or
